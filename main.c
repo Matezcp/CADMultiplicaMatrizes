@@ -42,7 +42,7 @@ int main(int argc, char **argv){
         //Aloca a matriz B
         B = (int *) malloc(sizeof(int) * N * N);
         //Aloca a matriz C
-        C = (int *) malloc (sizeof(int) * N * cargaTrabalho);
+        C = (int *) calloc(N * cargaTrabalho,sizeof(int));
     }
 
     //Processo 0 aloca as matrizes originais (a matriz B já foi alocada)
@@ -50,7 +50,7 @@ int main(int argc, char **argv){
         //Aloca a matriz A original
         Aoriginal = (int *) malloc (sizeof(int) * N * N);
         //Aloca a matriz C Final
-        Cfinal = (int *) malloc (sizeof(int) * N * N);
+        Cfinal = (int *) calloc (N*N,sizeof(int));
 
         //Preenche Aoriginal e B (NÃO TÁ ALEÁTORIO LÁ DO JEITO QUE TEM SER)
         k = 0;
@@ -75,14 +75,6 @@ int main(int argc, char **argv){
         //Manda a matrix B inteira para todos processos
         MPI_Bcast(B,N*N,MPI_INT,0,USED_PROCESS);
 
-        //Inicializa a matriz C
-        for(i = 0; i < cargaTrabalho; i++){
-            for(j = 0; j < N; j++){
-                //C[i][j] = 0;
-                C[i*N+j] = 0;
-            }
-        }
-
         //Cada processo faz seus calculos paralelamente
         #pragma omp parallel for shared(A,B,C) private(i,j,k) schedule (static)
         for (i = 0; i < cargaTrabalho; i++) {
@@ -90,6 +82,23 @@ int main(int argc, char **argv){
                 for (k = 0; k < N; k++) {
                     //C[i][j] += A[i][k] * B[k][j];
                     C[i*N+j] += A[i*N+k] * B[k*N+j];
+                }
+            }
+        }
+
+        if(myRank == 0){
+            //Verifica se a carga de trabalho não foi exata
+            if(numProcs*cargaTrabalho != N){
+                //Ve o quanto falta computar
+                int faltantes = N - numProcs*cargaTrabalho;
+                //Computa o que falta
+                #pragma omp parallel for shared(A,B,C) private(i,j,k) schedule (static)
+                for (i = N-1; i >= N-faltantes; i--) {
+                    for (j = 0; j < N; j++) {
+                        for (k = 0; k < N; k++) {
+                            Cfinal[i*N+j] += Aoriginal[i*N+k] * B[k*N+j];
+                        }
+                    }
                 }
             }
         }
