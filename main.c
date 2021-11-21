@@ -7,30 +7,36 @@
 
 #define TAG 13
 //Matrix N X N
-#define N 4
+#define N 3
 //Número de Threads para paralelização
-#define NUMTHREADS 8
+#define NUMTHREADS 2
+//Para debug
+#define DEBUG
 
 int main(int argc, char **argv){
     int *A,*Aoriginal,*B,*C,*Cfinal;
     int numProcs,myRank,cargaTrabalho;
     int numThreads = NUMTHREADS;
     int i,j,k;
+    double startTime, endTime;
     MPI_Comm USED_PROCESS;
 
     //Inicializa o MPI e pega o número de processos e o rank do processo atual
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &myRank);
     MPI_Comm_size(MPI_COMM_WORLD, &numProcs);
-  
-    //Seta o número de threads do OMP
-    omp_set_num_threads(numThreads);
 
     //Define o quanto cada processo irá receber
     if(numProcs >= N)
         cargaTrabalho = 1;
     else
         cargaTrabalho = N/numProcs;
+    
+    //Seta o número de threads do OMP
+    omp_set_num_threads(numThreads);
+    
+    //Seta a seed para o rand
+    srand(2021);
 
     //Coloca os processos que serão usados em um sub-comunicador com cor 1 e os processo que não irão ser utilizados em outro com cor 0
     MPI_Comm_split(MPI_COMM_WORLD, (myRank<N), myRank, &USED_PROCESS);
@@ -53,16 +59,34 @@ int main(int argc, char **argv){
         Cfinal = (int *) calloc (N*N,sizeof(int));
 
         //Preenche Aoriginal e B (NÃO TÁ ALEÁTORIO LÁ DO JEITO QUE TEM SER)
-        k = 0;
         for(i = 0; i < N; i++){
             for(j = 0; j < N; j++){
                 //Aoriginal[i][j] = k;
                 //B[i][j] = k;
-                Aoriginal[i*N+j] = k;
-                B[i*N+j] = k;
-                k++;
+                Aoriginal[i*N+j] = rand();
+                B[i*N+j] = rand();
             }
         }
+
+        #ifdef DEBUG
+        printf("Aoriginal: \n");
+        for(i = 0; i < N; i++){
+            for(j = 0; j < N; j++){
+                printf("%d ",Aoriginal[i*N+j]);
+            }
+            printf("\n");
+        }
+
+        printf("B: \n");
+        for(i = 0; i < N; i++){
+            for(j = 0; j < N; j++){
+                printf("%d ",B[i*N+j]);
+            }
+            printf("\n");
+        }
+
+        printf("\n");
+        #endif
     }
 
     
@@ -75,14 +99,28 @@ int main(int argc, char **argv){
         //Manda a matrix B inteira para todos processos
         MPI_Bcast(B,N*N,MPI_INT,0,USED_PROCESS);
 
+        //Começa o timer
+        if (myRank == 0) {
+            startTime = omp_get_wtime();
+        }
+
         //Cada processo faz seus calculos paralelamente
-        #pragma omp parallel for shared(A,B,C) private(i,j,k) schedule (static)
+        #pragma omp parallel for collapse(2)
         for (i = 0; i < cargaTrabalho; i++) {
             for (j = 0; j < N; j++) {
+                int aux = 0;
+
+                #ifdef DEBUG
+                    printf("On thread %d, i = %d, j = %d\n", omp_get_thread_num(), i, j);
+                #endif
+
+                #pragma omp parallel for simd reduction(+:aux)
                 for (k = 0; k < N; k++) {
                     //C[i][j] += A[i][k] * B[k][j];
-                    C[i*N+j] += A[i*N+k] * B[k*N+j];
+                    aux += A[i*N+k] * B[k*N+j];
                 }
+
+                C[i*N+j] = aux;
             }
         }
 
@@ -92,12 +130,18 @@ int main(int argc, char **argv){
                 //Ve o quanto falta computar
                 int faltantes = N - numProcs*cargaTrabalho;
                 //Computa o que falta
-                #pragma omp parallel for shared(A,B,C) private(i,j,k) schedule (static)
+
+                #pragma omp parallel for collapse(2)
                 for (i = N-1; i >= N-faltantes; i--) {
                     for (j = 0; j < N; j++) {
+                        int aux = 0;
+
+                        #pragma omp parallel for simd reduction(+:aux)
                         for (k = 0; k < N; k++) {
-                            Cfinal[i*N+j] += Aoriginal[i*N+k] * B[k*N+j];
+                            aux += Aoriginal[i*N+k] * B[k*N+j];
                         }
+
+                        Cfinal[i*N+j] = aux;
                     }
                 }
             }
@@ -109,6 +153,11 @@ int main(int argc, char **argv){
             exit(1);
         }
 
+        //Termina o timer
+        if(myRank == 0){
+            endTime = omp_get_wtime();
+        }
+
         //Printa o resultado Final
         if(myRank == 0){
             for(i = 0; i < N; i++){
@@ -118,6 +167,8 @@ int main(int argc, char **argv){
                 }
                 printf("\n");
             }
+
+            printf("Tempo passado: %lf\n", endTime - startTime);
         }
     }
 
