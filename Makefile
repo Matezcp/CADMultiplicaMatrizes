@@ -3,4 +3,4 @@ CC=mpicc
 all:
 	${CC} main.c -o main -fopenmp
 run:
-	./main
+	mpirun -np 4 main

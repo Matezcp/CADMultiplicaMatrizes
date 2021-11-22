@@ -6,6 +6,7 @@ make
 ```
 
 ## How to run
+Change 4 to another number to test with more or less process.
 ```sh
-make run
+mpirun -np 4 master
 ```
